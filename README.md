@@ -1,0 +1,2 @@
+# witty
+synonyms: quip
