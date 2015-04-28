@@ -1,0 +1,26 @@
+{
+  "name": "witty",
+  "version": "0.0.0",
+  "description": "synonyms: quip",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/stephen/witty.git"
+  },
+  "author": "Stephen Wan <stephen@stephenwan.net>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/stephen/witty/issues"
+  },
+  "homepage": "https://github.com/stephen/witty",
+  "dependencies": {
+    "babel": "^5.1.13",
+    "bluebird": "^2.9.25",
+    "express": "^4.12.3",
+    "later": "^1.1.6",
+    "request": "^2.55.0"
+  }
+}
