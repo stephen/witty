@@ -1,5 +1,6 @@
 var later       = require('later');
 var express     = require('express');
+var Redis = require('ioredis');
 var Promise     = require('bluebird');
 var querystring = require('querystring');
 var co          = require('co');
@@ -21,6 +22,8 @@ var server = app.listen(3000, () => {
   console.log('Witty listening at http://%s:%s', host, port);
 });
 
+var redis = new Redis();
+
 var retrieveSched = later.parse.text('every minute');
 later.date.UTC();
 
@@ -38,68 +41,45 @@ var retrieveRecentThreads = function(argBlob) {
   })
 };
 
+var retrieveSample = function*(max_updated_usec) {
+
+  max_updated_usec = Date.now() * 1000 || max_updated_usec;
+
+  let [response, data] = yield retrieveRecentThreads({
+    max_updated_usec: max_updated_usec,
+    count: 5
+  });
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    debug(`error occurred retrieving sample from ${ max_updated_usec }`);
+    debug(data);
+  }
+
+  let sampleThreads = Object.keys(data);
+  let nearestSecond = Math.floor(max_updated_usec / 1000 / 1000);
+  let nearestMinuteBucket = Math.floor(nearestSecond / 60) % 60;
+
+  debug(`retrieved sample at ${ moment.unix(nearestSecond).format() }, bucketed at ${ nearestMinuteBucket } (${ sampleThreads.join(', ') })`);
+
+  yield redis.sadd(`sample:${ nearestMinuteBucket }`, sampleThreads);
+};
+
+var analyzeSamples = function*() {
+  for (let minute = 0; minute < 60; minute++) {
+    let sample = yield redis.smembers(`sample:${ minute }`);
+    debug(sample);
+  }
+};
+
 var refreshData = function() {
 
   debug('refreshing data');
 
-  function sleep(millis) {
-    var deferredResult = Promise.defer();
-    setTimeout(function() {
-      deferredResult.resolve();
-    }, millis);
-    return deferredResult.promise;
-  };
-
   co(function*() {
-
-    let samples = [];
-
-    let max_updated_usec = Date.now() * 1000;//1430143200 * 1000 * 1000;
-    for (let i = 0; i < 30; i++, max_updated_usec -= (1000 * 1000 * 60 * 2)) {
-
-      yield sleep(600);
-
-      let [response, threads] = yield retrieveRecentThreads({
-        max_updated_usec: max_updated_usec,
-        count: 2
-      });
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        debug(`error occurred retrieving sample from ${ max_updated_usec }`);
-        debug(threads);
-      }
-
-      debug(`retrieved sample from ${ moment(max_updated_usec / 1000).format() }`);
-
-      samples.push(threads);
-    }
-
-    return samples;
-
-  }).then((samples) => {
-
-    return samples.reduce((map, sample) => {
-
-      Object.keys(sample).forEach((key) => {
-        if (!map[key]) map[key] = {
-          count: 0,
-          title: sample[key].thread ? sample[key].thread.title : 'no title available',
-          updates: []
-        };
-
-        let updateTime = sample[key].thread.updated_usec;
-
-        if (!map[key].updates.includes(updateTime)) {
-          map[key].count += 1;
-          map[key].updates.push(updateTime);
-        }
-      });
-
-      return map;
-    }, {});
-
+    yield retrieveSample();
+    yield analyzeSamples();
   }).then((map) => {
-    console.log(map);
+
   }).catch((err) => {
     console.log(err.stack);
   });
