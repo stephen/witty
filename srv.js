@@ -22,10 +22,9 @@ var server = app.listen(3000, () => {
   console.log('Witty listening at http://%s:%s', host, port);
 });
 
-var redis = new Redis();
+var redis = new Redis(process.env.REDIS_CONNECTION);
 
-var retrieveSched = later.parse.text('every minute');
-later.date.UTC();
+var retrieveSched = later.parse.recur().every(1).minute();
 
 var retrieveRecentThreads = function(argBlob) {
 
@@ -58,17 +57,25 @@ var retrieveSample = function*(max_updated_usec) {
   let sampleThreads = Object.keys(data);
   let nearestSecond = Math.floor(max_updated_usec / 1000 / 1000);
   let nearestMinuteBucket = Math.floor(nearestSecond / 60) % 60;
+  let bucketKey = `sample:${ nearestMinuteBucket }`;
 
   debug(`retrieved sample at ${ moment.unix(nearestSecond).format() }, bucketed at ${ nearestMinuteBucket } (${ sampleThreads.join(', ') })`);
 
-  yield redis.sadd(`sample:${ nearestMinuteBucket }`, sampleThreads);
+  yield redis.pipeline().del(bucketKey).sadd(bucketKey, sampleThreads).exec();
 };
 
 var analyzeSamples = function*() {
+
+  let mapping = [];
   for (let minute = 0; minute < 60; minute++) {
     let sample = yield redis.smembers(`sample:${ minute }`);
-    debug(sample);
+    sample.forEach((thread) => {
+      if (!mapping[thread]) mapping[thread] = 0;
+      mapping[thread] += 1;
+    });
   }
+
+  debug(mapping);
 };
 
 var refreshData = function() {
