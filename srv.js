@@ -61,6 +61,11 @@ var retrieveSample = function*(max_updated_usec) {
 
   debug(`retrieved sample at ${ moment.unix(nearestSecond).format() }, bucketed at ${ nearestMinuteBucket } (${ sampleThreads.join(', ') })`);
 
+  // filter out threads threads in the sample that are not documents
+  sampleThreads = sampleThreads.filter((thread) => {
+    return data[thread].thread.thread_class === 'document';
+  });
+
   // save thread keys as a sorted set - basde on position (most recently changed)
   let scoredThreads = sampleThreads.map((thread, index) => {
     return [index, thread];
@@ -70,11 +75,20 @@ var retrieveSample = function*(max_updated_usec) {
 
   yield redis.pipeline().del(bucketKey).zadd(bucketKey, scoredThreads).exec();
 
+  // write out individual threads by bucket
   for (let thread of sampleThreads) {
     let threadData = data[thread].thread;
 
     let sampleThreadKey = `sample:${ nearestMinuteBucket }:thread:${ threadData.id }`;
     yield redis.pipeline().del(sampleThreadKey).hset(sampleThreadKey, ['updated_usec', threadData.updated_usec ]).exec();
+  }
+
+  // write out individual threads by id
+  for (let thread of sampleThreads) {
+    let threadData = data[thread].thread;
+
+    let threadKey = `thread:${ threadData.id }`;
+    yield redis.pipeline().del(threadKey).hmset(threadKey, threadData).exec();
   }
 };
 
