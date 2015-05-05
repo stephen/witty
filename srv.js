@@ -75,16 +75,22 @@ var retrieveSample = function*(max_updated_usec) {
 
   yield redis.pipeline().del(bucketKey).zadd(bucketKey, scoredThreads).exec();
 
-  // write out individual threads by bucket
-  for (let thread of sampleThreads) {
+  // write out individual threads
+  let redisPipeline = redis.pipeline();
+
+  sampleThreads.forEach((thread) => {
     let threadData = data[thread].thread;
 
+    // write the updated_usec by bucket
     let sampleThreadKey = `sample:${ nearestMinuteBucket }:thread:${ threadData.id }`;
-    yield redis.pipeline().del(sampleThreadKey).hset(sampleThreadKey, ['updated_usec', threadData.updated_usec ]).exec();
+    redisPipeline = redisPipeline.del(sampleThreadKey).hset(sampleThreadKey, ['updated_usec', threadData.updated_usec ]);
 
+    // write the total thread blob agnostic of bucket
     let threadKey = `thread:${ threadData.id }`;
-    yield redis.pipeline().del(threadKey).hmset(threadKey, threadData).exec();
-  }
+    redisPipeline = redisPipeline.del(threadKey).hmset(threadKey, threadData);
+  });
+
+  yield redisPipeline.exec();
 };
 
 var analyzeSamples = function*() {
