@@ -81,11 +81,6 @@ var retrieveSample = function*(max_updated_usec) {
 
     let sampleThreadKey = `sample:${ nearestMinuteBucket }:thread:${ threadData.id }`;
     yield redis.pipeline().del(sampleThreadKey).hset(sampleThreadKey, ['updated_usec', threadData.updated_usec ]).exec();
-  }
-
-  // write out individual threads by id
-  for (let thread of sampleThreads) {
-    let threadData = data[thread].thread;
 
     let threadKey = `thread:${ threadData.id }`;
     yield redis.pipeline().del(threadKey).hmset(threadKey, threadData).exec();
