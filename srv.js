@@ -61,21 +61,45 @@ var retrieveSample = function*(max_updated_usec) {
 
   debug(`retrieved sample at ${ moment.unix(nearestSecond).format() }, bucketed at ${ nearestMinuteBucket } (${ sampleThreads.join(', ') })`);
 
-  yield redis.pipeline().del(bucketKey).sadd(bucketKey, sampleThreads).exec();
+  // save thread keys as a sorted set - basde on position (most recently changed)
+  let scoredThreads = sampleThreads.map((thread, index) => {
+    return [index, thread];
+  }).reduce((a, b) => {
+    return a.concat(b);
+  });
+
+  yield redis.pipeline().del(bucketKey).zadd(bucketKey, scoredThreads).exec();
+
+  for (let thread of sampleThreads) {
+    let threadData = data[thread].thread;
+
+    let sampleThreadKey = `sample:${ nearestMinuteBucket }:thread:${ threadData.id }`;
+    yield redis.pipeline().del(sampleThreadKey).hset(sampleThreadKey, ['updated_usec', threadData.updated_usec ]).exec();
+  }
 };
 
 var analyzeSamples = function*() {
 
-  let mapping = [];
+  let threads = {};
   for (let minute = 0; minute < 60; minute++) {
-    let sample = yield redis.smembers(`sample:${ minute }`);
-    sample.forEach((thread) => {
-      if (!mapping[thread]) mapping[thread] = 0;
-      mapping[thread] += 1;
-    });
+
+    // zrange will pull in the weighted order
+    let sample = yield redis.zrange(`sample:${ minute }`, 0, -1);
+
+    for (let thread of sample) {
+      let threadData = yield redis.hgetall(`sample:${ minute }:thread:${ thread }`);
+
+      if (!threads[thread]) threads[thread] = { updates: new Set() };
+      threads[thread].updates.add(threadData.updated_usec);
+    }
   }
 
-  debug(mapping);
+  let threadHistogram = Object.keys(threads).reduce((map, threadKey) => {
+    map[threadKey] = threads[threadKey].updates.size;
+    return map;
+  }, {});
+
+  debug(threadHistogram);
 };
 
 var refreshData = function() {
